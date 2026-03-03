@@ -127,3 +127,21 @@ class Patient:
 
         for lesion in self.lesions:
             lesion.compute_centroid(affine)
+
+
+    def compute_prostate_centroid(self):
+        """
+        Compute prostate centroid in world coordinates (mm).
+        """
+        coords = np.argwhere(self.prostate_mask > 0)
+
+        if coords.size == 0:
+            raise ValueError(f"[{self.id}] Empty prostate mask")
+
+        centroid_voxel = coords.mean(axis=0)
+
+        centroid_h = np.append(centroid_voxel, 1.0)
+        centroid_world = self.affines["t2"] @ centroid_h
+
+        return centroid_world[:3].astype(float)
+
