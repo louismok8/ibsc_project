@@ -1,4 +1,6 @@
 import numpy as np
+from scipy import stats
+from scipy.stats import norm
 
 
 class BiopsySimulation:
@@ -8,8 +10,8 @@ class BiopsySimulation:
 
     def __init__(self, patient, template):
         """
-        ___Parameters___
- 
+        Parameters
+        ----------------
         patient : Patient
             Patient object with prostate mask and affine
         template : BiopsyTemplate
@@ -298,7 +300,7 @@ class BiopsySimulation:
         sigmas = sigma_max_mm * (distances / length)
 
         # Sample Gaussian noise
-        errors = np.random.normal(
+        errors = norm.rvs(
             loc=0.0,
             scale=sigmas[:, None],
             size=points.shape
@@ -562,9 +564,33 @@ class BiopsySimulation:
                     )
 
             # Store aggregated statistics
+            hit_mean = np.mean(hit_flags)
+
+            # 95% CI for hit probability (binomial)
+            ci_low, ci_high = stats.binom.interval(
+                0.95,
+                n=n_simulations,
+                p=hit_mean
+            )
+
+            ci_low /= n_simulations
+            ci_high /= n_simulations
+
+            mean_percent = np.mean(positive_percentages)
+
+            # 95% CI for mean percentage positive (t-based)
+            ci_percent = stats.t.interval(
+                0.95,
+                df=len(positive_percentages)-1,
+                loc=mean_percent,
+                scale=stats.sem(positive_percentages)
+            )
+
             results[lesion.id] = {
-                "hit_probability": float(np.mean(hit_flags)),
-                "mean_percentage_positive": float(np.mean(positive_percentages)),
+                "hit_probability": float(hit_mean),
+                "hit_probability_ci": (float(ci_low), float(ci_high)),
+                "mean_percentage_positive": float(mean_percent),
+                "mean_percentage_positive_ci": tuple(ci_percent),
                 "distribution_percentage_positive": np.array(positive_percentages),
                 "distribution_positive_core_counts": np.array(positive_core_counts),
             }
