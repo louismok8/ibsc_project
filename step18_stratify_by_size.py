@@ -3,6 +3,7 @@ import numpy as np
 from step1_load_data import load_full_dataset
 from models.template import BiopsyTemplate
 from models.simulation import BiopsySimulation
+from scipy import stats
 
 def compute_size_bins(volumes):
     q1, q2 = np.percentile(volumes, [33.3, 66.7])
@@ -88,6 +89,22 @@ def main():
         print(f"  Mean expected positive cores: {np.mean(expected_positives):.2f}")
         print(f"  Mean % positive core: {100*np.mean(mean_percent_positive):.1f}%")
         print("-"*50)
+
+        # -----------------------------
+        # Statistical comparison example: Small vs Large
+        # -----------------------------
+        if (len(hit_probs_dict["Small"]) > 1 and 
+            len(hit_probs_dict["Large"]) > 1):
+
+            stat, p = stats.mannwhitneyu(
+                hit_probs_dict["Small"],
+                hit_probs_dict["Large"],
+                alternative="two-sided"
+            )
+
+            print("\nStatistical test (Small vs Large hit probability)")
+            print(f"  Mann-Whitney U p-value: {p:.4f}")
+
 
     # ===== Visualization =====
     labels = ["Small", "Medium", "Large"]

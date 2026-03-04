@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from step1_load_data import load_full_dataset
 from models.template import BiopsyTemplate
 from models.simulation import BiopsySimulation
+from scipy import stats
 
 # -----------------------------
 # 1. Load dataset and run Monte Carlo if not saved
@@ -61,6 +62,31 @@ sim_df = pd.DataFrame(sim_data)
 # 4. Merge real and simulated data
 # -----------------------------
 merged_df = pd.merge(real_df, sim_df, on="lesion_id", how="inner", suffixes=("_real", "_sim"))
+
+# Kolmogorov-Smirnov test for distribution similarity
+ks_stat, ks_p = stats.ks_2samp(
+    merged_df["percent_positive_real"],
+    merged_df["mean_percent_positive"]
+)
+
+print(f"\nKS test p-value (% positive): {ks_p:.4f}")
+
+# Mann-Whitney for core counts
+u_stat, u_p = stats.mannwhitneyu(
+    merged_df["positive_cores_real"],
+    merged_df["mean_positive_cores"],
+    alternative="two-sided"
+)
+
+print(f"Mann-Whitney p-value (# cores): {u_p:.4f}")
+
+# Correlation
+corr, corr_p = stats.pearsonr(
+    merged_df["percent_positive_real"],
+    merged_df["mean_percent_positive"]
+)
+
+print(f"Pearson correlation: r={corr:.3f}, p={corr_p:.4f}")
 
 print("✓ Comparison table (first 5 lesions):")
 print(merged_df.head())
