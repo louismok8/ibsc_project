@@ -144,4 +144,5 @@ class Patient:
         centroid_world = self.affines["t2"] @ centroid_h
 
         return centroid_world[:3].astype(float)
+    
 

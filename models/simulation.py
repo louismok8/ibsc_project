@@ -1,13 +1,13 @@
 import numpy as np
-from scipy import stats
-from scipy.stats import norm
+from scipy import stats # statistics module (CI, binomial stats, t-distributions)
+from scipy.stats import norm # normal distribution object within stats module (Gaussian needle placement errors)
 
 
 class BiopsySimulation:
     """
-    Handles patient-specific biopsy feasibility checks.
+    Handles patient-specific biopsy simulations
     """
-
+    
     def __init__(self, patient, template):
         """
         Parameters
@@ -20,12 +20,13 @@ class BiopsySimulation:
         self.patient = patient
         self.template = template
 
-        self.valid_holes = []
+        self.valid_holes = [] # empty list to store valid template holes that can reach the prostate depending on patient
 
-    def restrict_to_prostate(
+
+    def restrict_to_prostate(   # filters template holes to find those which intersect the prostate
         self,
-        step_mm=1.0,
-        max_depth_mm=150.0,
+        step_mm=1.0,    # distance between sampled points along the needle (sample every 1mm)
+        max_depth_mm=150.0,     # max needle insertion depth
     ):
         """
         Keep only template holes whose needle trajectory
@@ -39,16 +40,16 @@ class BiopsySimulation:
         max_depth_mm : float
             Maximum needle insertion depth (mm)
         """
-        affine = self.patient.affines["t2"]
-        inv_affine = np.linalg.inv(affine)
+        affine = self.patient.affines["t2"]     # load MRI affine transformation matrix
+        inv_affine = np.linalg.inv(affine)      # computes inverse matrix (world -> voxel)
 
-        prostate = self.patient.prostate_mask
-        shape = prostate.shape
+        prostate = self.patient.prostate_mask   # load prostate mask (3d binary mask)
+        shape = prostate.shape                  # load prostate mask shape (valid voxel indices)
 
-        valid = []
+        valid = []  # Temporary list of holes that intersect the prostate
 
-        for hole in self.template.holes:
-            if self._hole_hits_prostate(
+        for hole in self.template.holes:    # iterate through every hole in template
+            if self._hole_hits_prostate(    # calls helper function (defined below) to check validity
                 hole,
                 prostate,
                 shape,
@@ -56,12 +57,12 @@ class BiopsySimulation:
                 step_mm,
                 max_depth_mm,
             ):
-                valid.append(hole)
+                valid.append(hole)          # if valid, append to temporary valid list
 
-        self.valid_holes = valid
+        self.valid_holes = valid            # Save temporary valid list elements into main list of valid holes
         return valid
 
-    def _hole_hits_prostate(
+    def _hole_hits_prostate(                # HELPER FUNCTION: Check whether a single hole intersects the prostate
         self,
         hole,
         prostate_mask,
@@ -73,30 +74,30 @@ class BiopsySimulation:
         """
         Check whether a single hole intersects the prostate.
         """
-        origin = hole["origin"]
-        direction = hole["direction"]
+        origin = hole["origin"]     # Extract hole origin
+        direction = hole["direction"]   # Extract hole direction
 
-        n_steps = int(max_depth_mm / step_mm)
+        n_steps = int(max_depth_mm / step_mm)   # compute sampling steps (150/1=150 samples)
 
-        for i in range(n_steps):
-            point_world = origin + i * step_mm * direction
+        for i in range(n_steps):    # iterates along needle path
+            point_world = origin + i * step_mm * direction  # traces needle line 
 
-            point_h = np.append(point_world, 1.0)
-            voxel = inv_affine @ point_h
-            voxel = voxel[:3]
+            point_h = np.append(point_world, 1.0)   # convert to homogenous coordinates, add 1 to end of coord for affine transformation
+            voxel = inv_affine @ point_h    # matrix multiplication to convert world -> MRI voxel coords
+            voxel = voxel[:3] # keep only x,y,z
 
-            idx = np.round(voxel).astype(int)
+            idx = np.round(voxel).astype(int) # round voxel coord to integer values
 
-            if np.any(idx < 0) or np.any(idx >= shape):
+            if np.any(idx < 0) or np.any(idx >= shape):     # ensure voxel index is inside the mask
                 continue
 
-            if prostate_mask[tuple(idx)] > 0:
+            if prostate_mask[tuple(idx)] > 0:   # if continue (after verififying voxel index is inside the mask, test if voxel coord correspond to being within the prostate, if so True, if not False
                 return True
 
         return False
     
 
-    def select_target_holes(self):
+    def select_target_holes(self):  # HELPER FUNCTION: Choose the best hole for each lesion
         """
         For each lesion, select the closest valid template hole
         based on Euclidean distance in world coordinates.
@@ -110,35 +111,35 @@ class BiopsySimulation:
             Mapping (lesion_id -> selected hole dict)
         """
 
-        if not self.valid_holes:
-            raise RuntimeError("Must run restrict_to_prostate() first.")
+        if not self.valid_holes:    # Ensure filtering has been done first
+            raise RuntimeError("Must run restrict_to_prostate() first.")    # Stops execution with error message
 
-        selected = {}
+        selected = {}   # Prepare output dictionary which maps lesions ID: selected best hole
 
-        for lesion in self.patient.lesions:
+        for lesion in self.patient.lesions:     # iterate through each lesion for a specific patient
 
-            centroid = lesion.centroid
-            min_dist = np.inf
-            best_hole = None
+            centroid = lesion.centroid      # obtain lesion centroid
+            min_dist = np.inf   # start with infinite distance
+            best_hole = None    # temporarily preset best hole to be no holes
 
-            for hole in self.valid_holes:
-                hole_origin = hole["origin"]
+            for hole in self.valid_holes:   # iterate through each valid hole
+                hole_origin = hole["origin"]    # extract hole origin
 
-                dist = np.linalg.norm(hole_origin - centroid)
+                dist = np.linalg.norm(hole_origin - centroid)   # calculate distance between centroid of lesion and hole origin
 
-                if dist < min_dist:
+                if dist < min_dist: # this if block ensures hole with origin closest to lesion centroid becomes best hole
                     min_dist = dist
                     best_hole = hole
 
-            lesion.simulation_results["selected_hole"] = best_hole
-            lesion.simulation_results["hole_distance_mm"] = float(min_dist)
+            lesion.simulation_results["selected_hole"] = best_hole  # save result in Lesion Class Constructor
+            lesion.simulation_results["hole_distance_mm"] = float(min_dist) # save distance result in Lesion Class Constructor
 
-            selected[lesion.id] = best_hole
+            selected[lesion.id] = best_hole # append to output dictionary
 
-        return selected
+        return selected # output dictionary is output
     
 
-    def define_ideal_needles(self, core_length_mm=20.0):
+    def define_ideal_needles(self, core_length_mm=20.0):    # HELPER FUNCITON: Defines ideal needles
         """
         Construct ideal (error-free) biopsy core segments
         centred at each lesion centroid.
@@ -162,36 +163,37 @@ class BiopsySimulation:
             Mapping lesion_id -> needle dict
         """
 
-        results = {}
+        results = {}    # Prepare output dictionary which maps lesions ID: ideal needle 
 
-        for lesion in self.patient.lesions:
+        for lesion in self.patient.lesions: # iterate through each lesion for a specific patient
 
-            if "selected_hole" not in lesion.simulation_results:
+            if "selected_hole" not in lesion.simulation_results:    # ensure a best hole has already been selected
                 raise RuntimeError(
                     "Must run select_target_holes() before defining needles."
                 )
 
-            centroid = lesion.centroid
-            direction = lesion.simulation_results["selected_hole"]["direction"]
+            centroid = lesion.centroid  # obtain lesion centroid
+            direction = lesion.simulation_results["selected_hole"]["direction"] # get direction of best hole
 
             half_length = core_length_mm / 2.0
 
+            # generate a 20mm core by going 10mm front and back from lesion centroid
             start = centroid - half_length * direction
             end = centroid + half_length * direction
 
-            needle = {
+            needle = {  # generate the needle object
                 "start": start.astype(float),
                 "end": end.astype(float),
                 "length_mm": float(core_length_mm),
             }
 
-            lesion.simulation_results["ideal_needle"] = needle
-            results[lesion.id] = needle
+            lesion.simulation_results["ideal_needle"] = needle  # add a new entry ideal needle: needle to Lesion Class Constructor
+            results[lesion.id] = needle    # append to output dictionary 
 
         return results
     
 
-    def discretise_needles(self, step_mm=1.0):
+    def discretise_needles(self, step_mm=1.0):  # Turns EACH needle into sample points (1mm along needle)
         """
         Discretise each ideal needle into regularly spaced 3D points.
 
@@ -210,11 +212,11 @@ class BiopsySimulation:
             Mapping lesion_id -> array of sampled points
         """
 
-        results = {}
+        results = {}    # Prepare output dictionary which maps lesions ID: points
 
-        for lesion in self.patient.lesions:
+        for lesion in self.patient.lesions: # iterate through each lesion for a specific patient
 
-            if "ideal_needle" not in lesion.simulation_results:
+            if "ideal_needle" not in lesion.simulation_results: # ensure an ideal needle has already been selected
                 raise RuntimeError(
                     "Must run define_ideal_needles() before discretisation."
                 )
@@ -225,32 +227,32 @@ class BiopsySimulation:
             end = needle["end"]
 
             # Direction vector
-            vec = end - start
-            length = np.linalg.norm(vec)
+            vec = end - start   # compute direction vector
+            length = np.linalg.norm(vec)    # compute length of idrection vector
 
             if length == 0:
                 raise ValueError("Needle has zero length.")
 
-            direction = vec / length
+            direction = vec / length    # normalise direction 
 
             # Number of sampling steps
-            n_steps = int(np.floor(length / step_mm)) + 1
+            n_steps = int(np.floor(length / step_mm)) + 1   # define number of sampling steps + 1
 
-            points = []
+            points = []     # prepare sample points list
 
             for i in range(n_steps):
                 point = start + i * step_mm * direction
                 points.append(point)
 
-            points = np.array(points, dtype=float)
+            points = np.array(points, dtype=float)  # turns points list to an array
 
-            lesion.simulation_results["needle_points"] = points
-            results[lesion.id] = points
+            lesion.simulation_results["needle_points"] = points     # add a new entry needle points: points to Lesion Class Constructor
+            results[lesion.id] = points # append to output dictionary
 
         return results
     
 
-    def generate_error_field(
+    def generate_error_field(   # HELPER FUNCTION: Generates ERROR FIELD
         self,
         lesion,
         sigma_max_mm=3.0,
@@ -275,7 +277,7 @@ class BiopsySimulation:
             to apply to each sampled needle point
         """
 
-        if "needle_points" not in lesion.simulation_results:
+        if "needle_points" not in lesion.simulation_results:    # ensure needle points has already been selected 
             raise RuntimeError(
                 "Must run discretise_needles() before generating error."
             )
@@ -297,10 +299,10 @@ class BiopsySimulation:
         distances = np.linalg.norm(points - start, axis=1)
 
         # Linear variance growth
-        sigmas = sigma_max_mm * (distances / length)
+        sigmas = sigma_max_mm * (distances / length)    # error grows linearly along the needle
 
         # Sample Gaussian noise
-        errors = norm.rvs(
+        errors = norm.rvs(      # 
             loc=0.0,
             scale=sigmas[:, None],
             size=points.shape
@@ -309,7 +311,7 @@ class BiopsySimulation:
         return errors
     
 
-    def apply_error_to_needles(
+    def apply_error_to_needles(     # HELPER FUNCTION: Applies error field to needles
         self,
         sigma_max_mm=3.0,
         random_seed=None,
@@ -354,16 +356,16 @@ class BiopsySimulation:
                 sigma_max_mm=sigma_max_mm
             )
 
-            realised_points = ideal_points + errors
+            realised_points = ideal_points + errors     # Apply error to each needle points
 
-            lesion.simulation_results["realised_needle_points"] = realised_points
+            lesion.simulation_results["realised_needle_points"] = realised_points   # add a new entry realised needle points: points to Lesion Class Constructor
 
-            results[lesion.id] = realised_points
+            results[lesion.id] = realised_points    # append to output dictionary
 
         return results
 
 
-    def intersect_needles_with_lesions(self):
+    def intersect_needles_with_lesions(self):       # HELPER FUNCITON: Test if needle point intersect with lesion mask
         """
         Determine which realised needle points intersect each lesion mask.
 
@@ -387,14 +389,14 @@ class BiopsySimulation:
 
         results = {}
 
-        for lesion in self.patient.lesions:
+        for lesion in self.patient.lesions: 
 
-            if "realised_needle_points" not in lesion.simulation_results:
+            if "realised_needle_points" not in lesion.simulation_results:   # ensure realised needle points has already been made
                 raise RuntimeError(
                     "Must run apply_error_to_needles() before hit testing."
                 )
 
-            points_world = lesion.simulation_results["realised_needle_points"]
+            points_world = lesion.simulation_results["realised_needle_points"]  
             lesion_mask = lesion.mask
             shape = lesion_mask.shape
 
@@ -422,13 +424,13 @@ class BiopsySimulation:
 
             intersections = np.array(intersections, dtype=bool)
 
-            lesion.simulation_results["lesion_intersections"] = intersections
+            lesion.simulation_results["lesion_intersections"] = intersections   # add a new entry lesion intersections: True or False to Lesion Class Constructor
             results[lesion.id] = intersections
 
         return results
     
 
-    def compute_needle_outcomes(self, step_mm=1.0):
+    def compute_needle_outcomes(self, step_mm=1.0):     # HELPER FUNCTION: Compute needle outcome metrics such as hit_flag, positive_length_mm and percentage_positive
         """
         Compute biopsy outcome metrics for each lesion.
 
@@ -455,7 +457,7 @@ class BiopsySimulation:
 
         for lesion in self.patient.lesions:
 
-            if "lesion_intersections" not in lesion.simulation_results:
+            if "lesion_intersections" not in lesion.simulation_results: # ensure lesion_intersections have alreayd been made
                 raise RuntimeError(
                     "Must run intersect_needles_with_lesions() first."
                 )
@@ -463,10 +465,10 @@ class BiopsySimulation:
             intersections = lesion.simulation_results["lesion_intersections"]
 
             # Hit flag
-            hit_flag = int(np.any(intersections))
+            hit_flag = int(np.any(intersections))   # 1 if there is an intersection with lesion
 
             # Positive length
-            n_positive = int(np.sum(intersections))
+            n_positive = int(np.sum(intersections)) 
             positive_length = float(n_positive * step_mm)
 
             # Total core length
@@ -484,13 +486,13 @@ class BiopsySimulation:
                 "percentage_positive": float(percentage_positive),
             }
 
-            lesion.simulation_results["outcomes"] = outcomes
+            lesion.simulation_results["outcomes"] = outcomes    # add a new entry outocmes: needle outcome metrics for each lesion to Lesion Class Constructor
             results[lesion.id] = outcomes
 
         return results
     
 
-    def run_monte_carlo(
+    def run_monte_carlo(        # HELPER FUNCTION: Monte Carlo simulation
         self,
         n_simulations=1000,
         n_cores=5,
@@ -528,12 +530,12 @@ class BiopsySimulation:
             positive_percentages = []
             positive_core_counts = []
 
-            for sim_i in range(n_simulations):
+            for sim_i in range(n_simulations):  # iterate through each simulation for n simulations
 
                 lesion_hits = 0
                 lesion_percentages = []
 
-                for core_i in range(n_cores):
+                for core_i in range(n_cores):   # Foe each simuation, iterate through its 5 core samples
 
                     # Apply stochastic error
                     self.apply_error_to_needles(
@@ -548,14 +550,14 @@ class BiopsySimulation:
                     lesion_hits += outcome["hit_flag"]
                     lesion_percentages.append(outcome["percentage_positive"])
 
-                # Record per simulation
+                # Record per SIMULATION (5 core summary)
                 hit_flags.append(int(lesion_hits > 0))
                 positive_percentages.append(
                     float(np.mean(lesion_percentages))
                 )
                 positive_core_counts.append(int(lesion_hits))
 
-                if sim_i % 100 == 0 and sim_i > 0:
+                if sim_i % 100 == 0 and sim_i > 0:  # Give summary stats every 100 simulations
                     current_estimate = np.mean(hit_flags)
                     print(
                         f"[Lesion {lesion.id}] "
@@ -563,10 +565,12 @@ class BiopsySimulation:
                         f"Hit probability ≈ {current_estimate:.3f}"
                     )
 
-            # Store aggregated statistics
+            # Store aggregated statistics (after simulating all simulations)
+
+            # Final hit mean (hitflag mean)
             hit_mean = np.mean(hit_flags)
 
-            # 95% CI for hit probability (binomial)
+            # Generate 95% CI for hit probability / hitflag mean (binomial)
             ci_low, ci_high = stats.binom.interval(
                 0.95,
                 n=n_simulations,
@@ -576,7 +580,8 @@ class BiopsySimulation:
             ci_low /= n_simulations
             ci_high /= n_simulations
 
-            mean_percent = np.mean(positive_percentages)
+            # Final postive percetage mean
+            mean_percent = np.mean(positive_percentages) 
 
             # 95% CI for mean percentage positive (t-based)
             ci_percent = stats.t.interval(

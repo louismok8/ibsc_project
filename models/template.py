@@ -33,29 +33,30 @@ class BiopsyTemplate:
         """
         self.grid_size = grid_size
         self.spacing = float(spacing)
-        self.origin = np.asarray(origin, dtype=float)
-
-        d = np.asarray(direction, dtype=float)
-        self.direction = d / np.linalg.norm(d)
+        self.origin = np.asarray(origin, dtype=float) # Convert origin to Numpy Array
+        d = np.asarray(direction, dtype=float) # Convert direction to Numpy Array
+        self.direction = d / np.linalg.norm(d) # Normalise direction vector to be a unit vector
 
         self.holes = self._build_grid()
 
+
+    # Helper function
     def _build_grid(self):
         """
         Build grid hole origins in a plane.
         """
-        half = self.grid_size // 2
-        coords = []
+        half = self.grid_size // 2  # 19 // 2 = 9 (meaning grid will run from -9 to 9)
+        coords = [] # List storage for every hole in the template
 
-        for i in range(-half, half + 1):
-            for j in range(-half, half + 1):
-                offset = np.array([
+        for i in range(-half, half + 1): # horizontal movement
+            for j in range(-half, half + 1): # vertical movement
+                offset = np.array([ # calculates hole position relative to center
                     i * self.spacing,
                     j * self.spacing,
                     0.0
                 ])
 
-                point = self.origin + offset
+                point = self.origin + offset # point world coordinate of each hole
 
                 coords.append({
                     "origin": point,
