@@ -12,9 +12,11 @@ Rather than modelling biopsy outcomes at the patient level, this project explici
 
 ## Project structure
 
+```bash
 iBSC/Project/
 │
-├── data/                  # Synthetic ground truth + paths
+├── data/                  
+│   ├── paths.py           # Paths
 ├── imagesTr/              # MRI scans
 ├── labelsTr/              # Lesion masks
 ├── zonesTr/               # Prostate masks
@@ -31,6 +33,7 @@ iBSC/Project/
 │
 ├── artificial data/              # Mock data generation
 ├── outputs/               # Results
+```
 
 ---
 
@@ -68,11 +71,11 @@ python pipelines/run_simulation_pipeline.py
 ## Key Parameters
 n_simulations → number of Monte Carlo runs (default: 1000)
 
-n_cores → biopsy cores per lesion
+n_cores → biopsy cores per lesion (default: 5)
 
-sigma_max_mm → max needle error (mm)
+sigma_max_mm → max needle error (3mm for MRI-targeted, 5mm for standard TRUS)
 
-step_mm → sampling resolution
+step_mm → sampling resolution (1mm along the needle)
 
 ---
 
