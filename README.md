@@ -59,11 +59,11 @@ Zone metrics → zone_accuracy_metrics.csv
 ---
 
 ## How to Run
-# Generate mock data
+### Generate mock data
 python analysis/generate_mock_real_patient_results.py
 python analysis/generate_mock_real_zone_results.py
 
-# Run full pipeline
+### Run full pipeline
 python pipelines/run_simulation_pipeline.py
 
 ---
