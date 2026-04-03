@@ -81,4 +81,4 @@ step_mm → sampling resolution (1mm along the needle)
 
 ## Summary
 
-This project provides a **lesion-level, MRI-grounded, simulation-based estimate** of prostate biopsy targeting accuracy under realistic uncertainty. It bridges the gap between ideal MRI targeting and real-world biopsy outcomes, offering insight into the reliability—and limitations—of current clinical practice.
+This project provides a **lesion-level, MRI-grounded, simulation-based estimate** of prostate biopsy targeting accuracy under realistic uncertainty. It bridges the gap between ideal MRI targeting and real-world biopsy outcomes, offering insight into the reliability and limitations of current clinical practice.
