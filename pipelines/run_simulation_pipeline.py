@@ -24,6 +24,7 @@ import sys
 import numpy as np
 import nibabel as nib
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from sklearn.metrics import (
     confusion_matrix,
@@ -248,7 +249,7 @@ def run_simulation_pipeline(
 
 
 # ---------------------------------------------------------
-# Evaluation pipeline (Phase A–C)
+# Evaluation pipeline (Run Simulation + Evaluation Phase A-E)
 # ---------------------------------------------------------
 
 def run_full_pipeline():
@@ -265,6 +266,8 @@ def run_full_pipeline():
     dataset.extract_all_lesions()
     dataset.compute_all_lesion_volumes()
     dataset.compute_all_lesion_centroids()
+
+
 
     # -----------------------------------------------------
     # Phase A — Save lesion simulation results
@@ -307,7 +310,53 @@ def run_full_pipeline():
     sim_path = os.path.join(PROJECT_ROOT, "outputs/simulation_results.csv")
     sim_df.to_csv(sim_path, index=False)
 
+    # --- Phase A SUMMARY STATISTICS --- ##############################################
+    df = pd.read_csv("outputs/simulation_results.csv")
+
+    # ---------------------------------------------------------------------
+    # SUMMARY 1. LESION-LEVEL (global) summary statistics
+    # ---------------------------------------------------------------------
+    summary_stats = {
+        "mean_hit_probability": df["hit_probability"].mean(),
+        "std_hit_probability": df["hit_probability"].std(),
+        "mean_percent_positive": df["mean_percent_positive"].mean(),
+        "std_percent_positive": df["mean_percent_positive"].std(),
+        "mean_expected_positive_cores": df["expected_positive_cores"].mean()
+    }
+
+    print("\n--- Global (Lesion-Level) Simulation Summary ---")
+    for k, v in summary_stats.items():
+        print(f"{k}: {v:.4f}")
+
+
+    # ---------------------------------------------------------------------
+    # SUMMARY 2. PATIENT-LEVEL aggregation (THIS is what you asked about)
+    # ---------------------------------------------------------------------
+    patient_summary = df.groupby("patient_id").agg({
+        "hit_probability": "mean",
+        "mean_percent_positive": "mean",
+        "expected_positive_cores": "mean"
+    }).reset_index()
+
+    print("\n--- Patient-Level Summary (first 5 rows) ---")
+    print(patient_summary.head())
+
+
+    # ---------------------------------------------------------------------
+    # SUMMARY 3. VISUALISATION (lesion-level distribution)
+    # ---------------------------------------------------------------------
+    plt.figure()
+    plt.hist(df["hit_probability"], bins=20)
+    plt.title("Distribution of Hit Probabilities (Lesion-Level)")
+    plt.xlabel("Hit Probability")
+    plt.ylabel("Frequency")
+    plt.savefig(os.path.join(PROJECT_ROOT, "outputs/hit_probability_distribution.png"), dpi=150)
+    plt.close()
+
+
     print(f"✓ Saved simulation results → {sim_path}")
+
+
 
     # -----------------------------------------------------
     # Phase B — Patient-level accuracy
@@ -358,6 +407,8 @@ def run_full_pipeline():
 
     print(f"\n✓ Saved patient predictions → {pred_path}")
 
+
+
     # -----------------------------------------------------
     # Phase C — Lesion zones
 
@@ -406,6 +457,7 @@ def run_full_pipeline():
     print("\n✓ Evaluation pipeline complete")
 
 
+
     # -----------------------------------------------------
     # Phase D — Zone-level simulation predictions
 
@@ -442,6 +494,7 @@ def run_full_pipeline():
     zone_preds.to_csv(zone_path, index=False)
 
     print(f"✓ Zone-level predictions saved → {zone_path}")
+
 
 
     # -----------------------------------------------------
@@ -514,6 +567,155 @@ def run_full_pipeline():
     print("\nZone-level metrics summary:")
     print(zone_metrics_df)
 
+    # ---------------------------------------------------------------------
+    # SUMMARY 1. ZONE-LEVEL (global) summary statistics
+    # ---------------------------------------------------------------------
+
+    zone_names = zone_metrics_df["zone"]
+    x = np.arange(len(zone_names))
+    width = 0.35
+
+    fig, ax = plt.subplots()
+    ax.bar(x - width/2, zone_metrics_df["sensitivity"], width, label="Sensitivity")
+    ax.bar(x + width/2, zone_metrics_df["specificity"], width, label="Specificity")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(zone_names, rotation=15)
+    ax.set_ylabel("Score")
+    ax.set_title("Zone-Level Sensitivity and Specificity")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(PROJECT_ROOT, "outputs/zone_sensitivity_specificity.png"), dpi=150)
+    plt.close()
+
+
+
+# ---------------------------------------------------------
+# Sensitivity analysis: degradation curve across sigma values
+# ---------------------------------------------------------
+
+def run_sigma_sensitivity_analysis(
+    sigma_values=[2.0, 5.0, 10.0, 12.5],
+    n_simulations=1000,
+    n_cores=5,
+    step_mm=1.0,
+):
+    """
+    Run the Monte Carlo simulation at multiple sigma_max values
+    to produce a detection degradation curve.
+
+    Parameters
+    ----------
+    sigma_values : list[float]
+        List of sigma_max_mm values to test (mm).
+    n_simulations, n_cores, step_mm : same as run_simulation_pipeline
+    """
+
+    print("\n==============================")
+    print("Running sigma sensitivity analysis")
+    print("==============================\n")
+
+    # Load dataset once — reuse across all sigma runs
+    dataset = load_full_dataset()
+    dataset.verify_all_geometry()
+    dataset.extract_all_lesions()
+    dataset.compute_all_lesion_volumes()
+    dataset.compute_all_lesion_centroids()
+
+    summary_rows = []
+
+    for sigma in sigma_values:
+
+        print(f"\n--- Running sigma_max = {sigma} mm ---")
+
+        lesion_hit_probs = []
+        lesion_pct_positives = []
+        lesion_expected_cores = []
+
+        for patient in dataset:
+
+            prostate_center = patient.compute_prostate_centroid()
+
+            template = BiopsyTemplate(
+                grid_size=19,
+                spacing=5.0,
+                origin=prostate_center,
+                direction=(0.0, 0.0, 1.0),
+            )
+
+            sim = BiopsySimulation(patient, template)
+            sim.restrict_to_prostate()
+            sim.select_target_holes()
+            sim.define_ideal_needles(core_length_mm=20.0)
+            sim.discretise_needles(step_mm=step_mm)
+
+            results = sim.run_monte_carlo(
+                n_simulations=n_simulations,
+                n_cores=n_cores,
+                sigma_max_mm=sigma,
+                step_mm=step_mm,
+            )
+
+            for lesion_id, stats in results.items():
+                lesion_hit_probs.append(stats["hit_probability"])
+                lesion_pct_positives.append(stats["mean_percentage_positive"])
+                lesion_expected_cores.append(
+                    np.mean(stats["distribution_positive_core_counts"])
+                )
+
+        mean_hit = np.mean(lesion_hit_probs)
+        std_hit = np.std(lesion_hit_probs)
+        mean_pct = np.mean(lesion_pct_positives)
+        mean_cores = np.mean(lesion_expected_cores)
+
+        print(f"  Mean hit probability:     {mean_hit:.4f} (SD={std_hit:.4f})")
+        print(f"  Mean % core involvement:  {100*mean_pct:.2f}%")
+        print(f"  Mean positive cores / 5:  {mean_cores:.3f}")
+
+        summary_rows.append({
+            "sigma_max_mm": sigma,
+            "mean_hit_probability": mean_hit,
+            "std_hit_probability": std_hit,
+            "mean_pct_positive": mean_pct,
+            "mean_expected_positive_cores": mean_cores,
+        })
+
+    # Save summary table
+    sensitivity_df = pd.DataFrame(summary_rows)
+    sensitivity_path = os.path.join(PROJECT_ROOT, "outputs/sigma_sensitivity.csv")
+    sensitivity_df.to_csv(sensitivity_path, index=False)
+    print(f"\n✓ Sensitivity analysis saved → {sensitivity_path}")
+
+    # Plot degradation curve
+    plt.figure(figsize=(8, 5))
+    plt.plot(
+        sensitivity_df["sigma_max_mm"],
+        sensitivity_df["mean_hit_probability"],
+        marker="o",
+        linewidth=2,
+        label="Mean hit probability"
+    )
+    plt.fill_between(
+        sensitivity_df["sigma_max_mm"],
+        sensitivity_df["mean_hit_probability"] - sensitivity_df["std_hit_probability"],
+        sensitivity_df["mean_hit_probability"] + sensitivity_df["std_hit_probability"],
+        alpha=0.2,
+        label="±1 SD"
+    )
+    plt.xlabel("σ_max (mm) — Maximum needle placement error")
+    plt.ylabel("Mean lesion-level hit probability")
+    plt.title("Detection Degradation Curve: Hit Probability vs Needle Placement Error")
+    plt.xticks(sigma_values)
+    plt.ylim(0, 1.05)
+    plt.legend()
+    plt.tight_layout()
+
+    plot_path = os.path.join(PROJECT_ROOT, "outputs/sigma_sensitivity_curve.png")
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
+    print(f"✓ Degradation curve saved → {plot_path}")
+
+    return sensitivity_df
 
 
 
@@ -525,4 +727,12 @@ def run_full_pipeline():
 
 if __name__ == "__main__":
 
+    # Run full evaluation pipeline (σ = 5mm)
     run_full_pipeline()
+
+    # Run sigma sensitivity analysis
+    run_sigma_sensitivity_analysis(
+        sigma_values=[2.0, 5.0, 10.0, 12.5],
+        n_simulations=1000,
+        n_cores=5,
+    )
